@@ -1,373 +1,196 @@
-# 网站媒体资源下载器浏览器插件
+# 浏览器翻译插件
 
-实现一个浏览器扩展，自动检测当前页面中的图片、视频、音频等媒体资源，并提供一键下载功能。
+实现一个右键菜单划词翻译的浏览器插件，使用 Google Translate 免费 API。
 
 ## 文件结构
-
-```
-extension/
-├── manifest.json
-├── background.js
-├── content.js
-├── popup.html
-├── popup.js
-└── icon.png (可选，此处省略)
-```
-
-## 创建文件
 
 ### `manifest.json`
 ```json CREATE: manifest.json
 {
   "manifest_version": 3,
-  "name": "媒体资源下载器",
+  "name": "网页翻译助手",
   "version": "1.0",
-  "description": "下载当前页面中的图片、视频、音频等媒体资源",
-  "permissions": ["downloads", "activeTab", "scripting"],
-  "host_permissions": ["<all_urls>"],
+  "description": "划词翻译插件，支持右键菜单翻译选中文本",
+  "permissions": [
+    "contextMenus",
+    "activeTab",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://translate.googleapis.com/*"
+  ],
   "background": {
     "service_worker": "background.js"
-  },
-  "action": {
-    "default_popup": "popup.html",
-    "default_icon": {
-      "16": "icon.png",
-      "48": "icon.png",
-      "128": "icon.png"
-    }
   },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"],
-      "run_at": "document_idle"
+      "js": ["content.js"]
     }
-  ]
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
 }
 ```
 
 ### `background.js`
 ```javascript CREATE: background.js
-// 监听来自popup的消息，触发下载
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'download') {
-    const url = request.url;
-    const filename = request.filename || generateFilename(url);
-    chrome.downloads.download({
-      url: url,
-      filename: filename,
-      conflictAction: 'uniquify'
-    }, (downloadId) => {
+// 创建右键菜单
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({
+    id: "translate-selection",
+    title: "翻译选中文本",
+    contexts: ["selection"]
+  });
+});
+
+// 监听菜单点击
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === "translate-selection" && info.selectionText) {
+    const selectedText = info.selectionText.trim();
+    // 发送消息给内容脚本，让它显示加载状态并准备接收翻译结果
+    chrome.tabs.sendMessage(tab.id, {
+      action: "translate",
+      text: selectedText
+    }, (response) => {
+      // 如果内容脚本未加载，尝试注入（实际上已经在 manifest 中声明了 content_scripts，应该没问题）
       if (chrome.runtime.lastError) {
-        console.error('下载失败:', chrome.runtime.lastError);
-        sendResponse({ success: false, error: chrome.runtime.lastError.message });
-      } else {
-        sendResponse({ success: true, downloadId });
+        console.warn("内容脚本未响应", chrome.runtime.lastError);
       }
     });
-    return true; // 保持消息通道开放，以便异步响应
   }
 });
 
-// 从URL生成默认文件名
-function generateFilename(url) {
-  try {
-    const urlObj = new URL(url);
-    let pathname = urlObj.pathname;
-    let filename = pathname.substring(pathname.lastIndexOf('/') + 1);
-    if (!filename || filename === '') {
-      filename = 'download_' + Date.now();
-    }
-    return filename;
-  } catch (e) {
-    return 'download_' + Date.now();
+// 监听来自内容脚本的翻译请求（直接调用 API 更可靠）
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === "fetchTranslation") {
+    translateText(request.text, request.targetLang || "zh-CN")
+      .then(translation => sendResponse({ translation }))
+      .catch(error => sendResponse({ error: error.message }));
+    return true; // 保持通道开放以便异步响应
   }
+});
+
+// 调用 Google Translate API
+async function translateText(text, targetLang = "zh-CN") {
+  // 自动检测源语言，目标语言中文
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`翻译服务响应错误: ${response.status}`);
+  }
+  const data = await response.json();
+  // 返回合并后的翻译文本
+  return data[0].map(item => item[0]).join("");
 }
 ```
 
 ### `content.js`
 ```javascript CREATE: content.js
-// 扫描页面中的媒体资源
-function scanMediaResources() {
-  const resources = {
-    images: [],
-    videos: [],
-    audios: []
-  };
+// 创建浮层元素
+let toast = null;
 
-  // 图片：img元素，background-image等简单起见只取img src
-  document.querySelectorAll('img').forEach(img => {
-    if (img.src && img.src.startsWith('http')) {
-      resources.images.push(img.src);
-    }
-  });
-
-  // 视频：video元素及其source
-  document.querySelectorAll('video').forEach(video => {
-    if (video.src && video.src.startsWith('http')) {
-      resources.videos.push(video.src);
-    }
-    video.querySelectorAll('source').forEach(source => {
-      if (source.src && source.src.startsWith('http')) {
-        resources.videos.push(source.src);
-      }
-    });
-  });
-
-  // 音频：audio元素及其source
-  document.querySelectorAll('audio').forEach(audio => {
-    if (audio.src && audio.src.startsWith('http')) {
-      resources.audios.push(audio.src);
-    }
-    audio.querySelectorAll('source').forEach(source => {
-      if (source.src && source.src.startsWith('http')) {
-        resources.audios.push(source.src);
-      }
-    });
-  });
-
-  // 可选：检测背景图片（简单示例，只检测内联样式，实际可扩展）
-  const elementsWithBg = document.querySelectorAll('[style*="background-image"]');
-  elementsWithBg.forEach(el => {
-    const style = getComputedStyle(el);
-    const bgImage = style.backgroundImage;
-    if (bgImage && bgImage !== 'none') {
-      const urlMatch = bgImage.match(/url\(["']?(.+?)["']?\)/);
-      if (urlMatch && urlMatch[1] && urlMatch[1].startsWith('http')) {
-        resources.images.push(urlMatch[1]);
-      }
-    }
-  });
-
-  // 去重（简单用Set）
-  resources.images = [...new Set(resources.images)];
-  resources.videos = [...new Set(resources.videos)];
-  resources.audios = [...new Set(resources.audios)];
-
-  return resources;
+function createToast() {
+  if (toast) return toast;
+  const div = document.createElement("div");
+  div.id = "translation-toast";
+  div.style.cssText = `
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    max-width: 400px;
+    background: #2c3e50;
+    color: #ecf0f1;
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    z-index: 999999;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    pointer-events: none;
+  `;
+  document.body.appendChild(div);
+  toast = div;
+  return toast;
 }
 
-// 监听来自popup的消息，返回扫描结果
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'getMedia') {
-    const media = scanMediaResources();
-    sendResponse(media);
-  }
-});
-```
+function showTranslation(text, translation) {
+  const toast = createToast();
+  toast.innerHTML = `
+    <strong>原文：</strong> ${escapeHtml(text)}<br>
+    <strong>译文：</strong> ${escapeHtml(translation)}
+  `;
+  toast.style.opacity = "1";
+  // 5秒后自动隐藏
+  clearTimeout(window.toastTimeout);
+  window.toastTimeout = setTimeout(() => {
+    toast.style.opacity = "0";
+  }, 5000);
+}
 
-### `popup.html`
-```html CREATE: popup.html
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <style>
-    body {
-      width: 400px;
-      max-height: 500px;
-      font-family: sans-serif;
-      margin: 0;
-      padding: 10px;
-    }
-    h3 {
-      margin: 0 0 8px 0;
-      font-size: 16px;
-    }
-    .section {
-      margin-bottom: 15px;
-      border-bottom: 1px solid #ccc;
-      padding-bottom: 10px;
-    }
-    .resource-list {
-      max-height: 200px;
-      overflow-y: auto;
-      font-size: 12px;
-    }
-    .resource-item {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 6px;
-      padding: 4px;
-      background: #f5f5f5;
-      border-radius: 4px;
-    }
-    .resource-url {
-      flex: 1;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      margin-right: 8px;
-    }
-    button {
-      background: #4caf50;
-      color: white;
-      border: none;
-      border-radius: 3px;
-      padding: 2px 8px;
-      cursor: pointer;
-      font-size: 11px;
-    }
-    button:hover {
-      background: #45a049;
-    }
-    .loading {
-      text-align: center;
-      color: #666;
-    }
-    .error {
-      color: red;
-    }
-  </style>
-</head>
-<body>
-  <h3>媒体资源下载器</h3>
-  <div id="content">
-    <div class="loading">加载中...</div>
-  </div>
-  <script src="popup.js"></script>
-</body>
-</html>
-```
-
-### `popup.js`
-```javascript CREATE: popup.js
-document.addEventListener('DOMContentLoaded', () => {
-  const contentDiv = document.getElementById('content');
-  
-  // 获取当前活动标签页
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    const tab = tabs[0];
-    if (!tab) {
-      contentDiv.innerHTML = '<div class="error">无法获取当前页面</div>';
-      return;
-    }
-
-    // 向content script发送消息获取媒体资源
-    chrome.tabs.sendMessage(tab.id, { action: 'getMedia' }, (response) => {
-      if (chrome.runtime.lastError) {
-        contentDiv.innerHTML = '<div class="error">无法与页面通信，请刷新页面后重试。</div>';
-        console.error(chrome.runtime.lastError);
-        return;
-      }
-
-      if (!response) {
-        contentDiv.innerHTML = '<div class="error">未检测到媒体资源。</div>';
-        return;
-      }
-
-      renderMedia(response);
-    });
+function escapeHtml(str) {
+  if (!str) return "";
+  return str.replace(/[&<>]/g, function(m) {
+    if (m === '&') return '&amp;';
+    if (m === '<') return '&lt;';
+    if (m === '>') return '&gt;';
+    return m;
+  }).replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, function(c) {
+    return c;
   });
+}
 
-  function renderMedia(media) {
-    let html = '';
+// 监听来自后台的消息
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === "translate") {
+    const text = request.text;
+    // 显示加载状态
+    const toast = createToast();
+    toast.innerHTML = `<strong>翻译中...</strong> ${escapeHtml(text)}`;
+    toast.style.opacity = "1";
 
-    // 图片
-    if (media.images && media.images.length > 0) {
-      html += `<div class="section">
-        <h3>📷 图片 (${media.images.length})</h3>
-        <div class="resource-list">`;
-      media.images.forEach(url => {
-        html += renderItem(url, 'image');
-      });
-      html += `</div></div>`;
-    }
-
-    // 视频
-    if (media.videos && media.videos.length > 0) {
-      html += `<div class="section">
-        <h3>🎬 视频 (${media.videos.length})</h3>
-        <div class="resource-list">`;
-      media.videos.forEach(url => {
-        html += renderItem(url, 'video');
-      });
-      html += `</div></div>`;
-    }
-
-    // 音频
-    if (media.audios && media.audios.length > 0) {
-      html += `<div class="section">
-        <h3>🎵 音频 (${media.audios.length})</h3>
-        <div class="resource-list">`;
-      media.audios.forEach(url => {
-        html += renderItem(url, 'audio');
-      });
-      html += `</div></div>`;
-    }
-
-    if (!media.images.length && !media.videos.length && !media.audios.length) {
-      html = '<div class="loading">未找到媒体资源。</div>';
-    }
-
-    contentDiv.innerHTML = html;
-
-    // 绑定下载按钮事件
-    document.querySelectorAll('.download-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const url = btn.getAttribute('data-url');
-        const type = btn.getAttribute('data-type');
-        downloadMedia(url, type);
-      });
-    });
-  }
-
-  function renderItem(url, type) {
-    // 提取文件名显示简短部分
-    let filename = '';
-    try {
-      const urlObj = new URL(url);
-      let pathname = urlObj.pathname;
-      filename = pathname.substring(pathname.lastIndexOf('/') + 1);
-      if (!filename) filename = 'file';
-    } catch (e) {
-      filename = 'file';
-    }
-    // 截断显示
-    const shortUrl = filename.length > 30 ? filename.substring(0, 27) + '...' : filename;
-    return `<div class="resource-item">
-      <div class="resource-url" title="${url}">${shortUrl}</div>
-      <button class="download-btn" data-url="${url}" data-type="${type}">下载</button>
-    </div>`;
-  }
-
-  function downloadMedia(url, type) {
-    // 生成建议文件名
-    let filename = '';
-    try {
-      const urlObj = new URL(url);
-      let pathname = urlObj.pathname;
-      filename = pathname.substring(pathname.lastIndexOf('/') + 1);
-      if (!filename) {
-        filename = `download_${Date.now()}`;
-      }
-    } catch (e) {
-      filename = `download_${Date.now()}`;
-    }
-
-    // 向background发送下载请求
-    chrome.runtime.sendMessage({ action: 'download', url: url, filename: filename }, (response) => {
-      if (response && response.success) {
-        console.log('下载已开始');
+    // 向后台请求翻译
+    chrome.runtime.sendMessage({
+      action: "fetchTranslation",
+      text: text,
+      targetLang: "zh-CN"
+    }, (response) => {
+      if (response && response.translation) {
+        showTranslation(text, response.translation);
+      } else if (response && response.error) {
+        const toast = createToast();
+        toast.innerHTML = `<strong>翻译失败</strong> ${escapeHtml(response.error)}`;
+        toast.style.opacity = "1";
+        setTimeout(() => { toast.style.opacity = "0"; }, 3000);
       } else {
-        alert('下载失败: ' + (response?.error || '未知错误'));
+        const toast = createToast();
+        toast.innerHTML = `<strong>翻译失败</strong> 请检查网络连接`;
+        toast.style.opacity = "1";
+        setTimeout(() => { toast.style.opacity = "0"; }, 3000);
       }
     });
+    sendResponse({ received: true });
   }
+  return true;
 });
 ```
+
+### 图标文件（占位说明）
+插件需要三个尺寸的图标（16x16、48x48、128x128），请自行准备并放置在 `icons/` 目录下。若不需要图标，可将 `manifest.json` 中的 `icons` 字段移除。
 
 ## 使用说明
-
-1. 将以上所有文件放入一个文件夹（如 `media_downloader`）。
-2. 打开 Chrome 浏览器，进入扩展程序管理页面 (`chrome://extensions/`)。
+1. 将以上文件放入一个文件夹（如 `translate-extension`）。
+2. 打开 Chrome 浏览器，进入 `chrome://extensions/`。
 3. 开启“开发者模式”，点击“加载已解压的扩展程序”，选择该文件夹。
-4. 插件安装后，访问任意网页，点击工具栏上的插件图标，弹出窗口将显示当前页面的媒体资源列表，点击“下载”按钮即可保存。
+4. 安装后，在任意网页选中文本，右键选择“翻译选中文本”，即可在右下角看到翻译结果浮层。
 
 ## 注意事项
-
-- 插件需要 `downloads` 和 `activeTab` 权限，仅对当前激活的标签页生效。
-- 由于跨域限制，部分资源可能无法直接下载，但大多数公开资源可以正常工作。
-- 如果页面内容动态加载（如无限滚动），需要刷新页面或重新打开弹窗以重新扫描。
-- 该插件仅检测 `<img>`、`<video>`、`<audio>` 元素及其 `<source>` 子元素，以及部分内联背景图片，不覆盖所有可能的媒体资源（如 data URL、CSS 中的背景图等）。
+- 翻译使用 Google Translate 的公开接口，可能会因请求频率过高被限制，建议个人使用。
+- 如果目标语言需要修改，可在 `background.js` 中修改 `translateText` 函数的 `targetLang` 参数。
+- 该插件仅支持文本翻译，不支持页面整体翻译。

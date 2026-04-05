@@ -1,123 +1,110 @@
 document.addEventListener('DOMContentLoaded', () => {
-  const contentDiv = document.getElementById('content');
-  
-  // 获取当前活动标签页
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    const tab = tabs[0];
-    if (!tab) {
-      contentDiv.innerHTML = '<div class="error">无法获取当前页面</div>';
+  const sourceText = document.getElementById('sourceText');
+  const targetLang = document.getElementById('targetLang');
+  const translateBtn = document.getElementById('translateBtn');
+  const resultDiv = document.getElementById('result');
+  const statusDiv = document.getElementById('status');
+
+  // OCR 相关元素
+  const imageFile = document.getElementById('imageFile');
+  const ocrBtn = document.getElementById('ocrBtn');
+  const ocrStatus = document.getElementById('ocrStatus');
+  const ocrApiKeyInput = document.getElementById('ocrApiKey');
+
+  // 加载保存的 API Key
+  chrome.storage.local.get(['ocrApiKey'], (result) => {
+    if (result.ocrApiKey) {
+      ocrApiKeyInput.value = result.ocrApiKey;
+    }
+  });
+
+  // 保存 API Key
+  ocrApiKeyInput.addEventListener('change', () => {
+    chrome.storage.local.set({ ocrApiKey: ocrApiKeyInput.value });
+  });
+
+  // 翻译功能（保持不变）
+  translateBtn.addEventListener('click', async () => {
+    const text = sourceText.value.trim();
+    if (!text) {
+      resultDiv.textContent = '请输入要翻译的文本';
       return;
     }
 
-    // 向content script发送消息获取媒体资源
-    chrome.tabs.sendMessage(tab.id, { action: 'getMedia' }, (response) => {
-      if (chrome.runtime.lastError) {
-        contentDiv.innerHTML = '<div class="error">无法与页面通信，请刷新页面后重试。</div>';
-        console.error(chrome.runtime.lastError);
-        return;
-      }
+    const target = targetLang.value;
+    const apiUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=auto|${target}`;
 
-      if (!response) {
-        contentDiv.innerHTML = '<div class="error">未检测到媒体资源。</div>';
-        return;
-      }
+    statusDiv.textContent = '翻译中...';
+    resultDiv.textContent = '';
 
-      renderMedia(response);
-    });
+    try {
+      const response = await fetch(apiUrl);
+      const data = await response.json();
+
+      if (data.responseData && data.responseData.translatedText) {
+        resultDiv.textContent = data.responseData.translatedText;
+        statusDiv.textContent = `翻译完成 (来源: ${data.responseData.match || 'MyMemory'})`;
+      } else {
+        throw new Error('未获取到翻译结果');
+      }
+    } catch (error) {
+      console.error(error);
+      resultDiv.textContent = '翻译失败，请检查网络或稍后重试';
+      statusDiv.textContent = error.message;
+    }
   });
 
-  function renderMedia(media) {
-    let html = '';
-
-    // 图片
-    if (media.images && media.images.length > 0) {
-      html += `<div class="section">
-        <h3>📷 图片 (${media.images.length})</h3>
-        <div class="resource-list">`;
-      media.images.forEach(url => {
-        html += renderItem(url, 'image');
-      });
-      html += `</div></div>`;
+  // OCR 识别图片文字
+  ocrBtn.addEventListener('click', async () => {
+    const file = imageFile.files[0];
+    if (!file) {
+      ocrStatus.textContent = '请先选择一张图片';
+      return;
     }
 
-    // 视频
-    if (media.videos && media.videos.length > 0) {
-      html += `<div class="section">
-        <h3>🎬 视频 (${media.videos.length})</h3>
-        <div class="resource-list">`;
-      media.videos.forEach(url => {
-        html += renderItem(url, 'video');
-      });
-      html += `</div></div>`;
-    }
+    const apiKey = ocrApiKeyInput.value.trim();
+    // 如果没有提供 API Key，使用演示 Key（可能每天限制，建议用户注册）
+    const finalApiKey = apiKey || 'helloworld'; // OCR.space 官方演示 key
 
-    // 音频
-    if (media.audios && media.audios.length > 0) {
-      html += `<div class="section">
-        <h3>🎵 音频 (${media.audios.length})</h3>
-        <div class="resource-list">`;
-      media.audios.forEach(url => {
-        html += renderItem(url, 'audio');
-      });
-      html += `</div></div>`;
-    }
+    ocrStatus.textContent = '识别中...';
+    ocrBtn.disabled = true;
 
-    if (!media.images.length && !media.videos.length && !media.audios.length) {
-      html = '<div class="loading">未找到媒体资源。</div>';
-    }
-
-    contentDiv.innerHTML = html;
-
-    // 绑定下载按钮事件
-    document.querySelectorAll('.download-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const url = btn.getAttribute('data-url');
-        const type = btn.getAttribute('data-type');
-        downloadMedia(url, type);
-      });
-    });
-  }
-
-  function renderItem(url, type) {
-    // 提取文件名显示简短部分
-    let filename = '';
     try {
-      const urlObj = new URL(url);
-      let pathname = urlObj.pathname;
-      filename = pathname.substring(pathname.lastIndexOf('/') + 1);
-      if (!filename) filename = 'file';
-    } catch (e) {
-      filename = 'file';
-    }
-    // 截断显示
-    const shortUrl = filename.length > 30 ? filename.substring(0, 27) + '...' : filename;
-    return `<div class="resource-item">
-      <div class="resource-url" title="${url}">${shortUrl}</div>
-      <button class="download-btn" data-url="${url}" data-type="${type}">下载</button>
-    </div>`;
-  }
+      // 使用 FormData 发送文件到 OCR.space
+      const formData = new FormData();
+      formData.append('apikey', finalApiKey);
+      formData.append('file', file);
+      formData.append('language', 'eng'); // 可改为 'chs' 支持中文，但免费版可能限制
+      formData.append('isOverlayRequired', 'false');
+      formData.append('OCREngine', '2'); // 使用较新引擎
 
-  function downloadMedia(url, type) {
-    // 生成建议文件名
-    let filename = '';
-    try {
-      const urlObj = new URL(url);
-      let pathname = urlObj.pathname;
-      filename = pathname.substring(pathname.lastIndexOf('/') + 1);
-      if (!filename) {
-        filename = `download_${Date.now()}`;
-      }
-    } catch (e) {
-      filename = `download_${Date.now()}`;
-    }
+      const response = await fetch('https://api.ocr.space/parse/image', {
+        method: 'POST',
+        body: formData
+      });
+      const data = await response.json();
 
-    // 向background发送下载请求
-    chrome.runtime.sendMessage({ action: 'download', url: url, filename: filename }, (response) => {
-      if (response && response.success) {
-        console.log('下载已开始');
-      } else {
-        alert('下载失败: ' + (response?.error || '未知错误'));
+      if (data.IsErroredOnProcessing) {
+        throw new Error(data.ErrorMessage?.[0] || 'OCR 处理失败');
       }
-    });
-  }
+
+      const parsedText = data.ParsedResults?.[0]?.ParsedText || '';
+      if (!parsedText) {
+        ocrStatus.textContent = '未能识别出文字，请换一张图片重试';
+        return;
+      }
+
+      // 将识别出的文本填入源文本区
+      sourceText.value = parsedText;
+      ocrStatus.textContent = `识别成功，共 ${parsedText.length} 个字符`;
+
+      // 可选：自动执行翻译
+      translateBtn.click();
+    } catch (error) {
+      console.error(error);
+      ocrStatus.textContent = `识别失败: ${error.message}`;
+    } finally {
+      ocrBtn.disabled = false;
+    }
+  });
 });

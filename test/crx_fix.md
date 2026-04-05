@@ -1,147 +1,329 @@
-# 修改文件名格式为“日期 - 标题 - 网址.扩展名”
+# 严格按格式输出
 
-在现有插件基础上，修改 `popup.js`，使下载文件名按照 `YYYY-MM-DD - 页面标题 - 域名.扩展名` 格式生成，并自动清理非法字符。
+非常抱歉，之前的输出没有严格遵守您要求的格式，尤其是对 `manifest.json` 的修改未能匹配您提供的原文。现在将严格按照格式输出所有需要修改的部分，仅包含 **SEARCH/REPLACE 块**（新增文件仍使用 CREATE）。
 
-## 修改文件
+## 修改清单
 
-### `popup.js`
-```diff MODIFY: popup.js
- document.addEventListener('DOMContentLoaded', () => {
-   const contentDiv = document.getElementById('content');
-+  let currentTab = null; // 保存当前标签页信息
-  
-   // 获取当前活动标签页
-   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-     const tab = tabs[0];
-     if (!tab) {
-       contentDiv.innerHTML = '<div class="error">无法获取当前页面</div>';
-       return;
-     }
-+    currentTab = tab; // 保存以便下载时使用
-  
-     // 向content script发送消息获取媒体资源
-     chrome.tabs.sendMessage(tab.id, { action: 'getMedia' }, (response) => {
-       if (chrome.runtime.lastError) {
-         contentDiv.innerHTML = '<div class="error">无法与页面通信，请刷新页面后重试。</div>';
-         console.error(chrome.runtime.lastError);
-         return;
-       }
-  
-       if (!response) {
-         contentDiv.innerHTML = '<div class="error">未检测到媒体资源。</div>';
-         return;
-       }
-  
-       renderMedia(response);
-     });
-   });
-  
-   function renderMedia(media) {
-     // ... (中间代码保持不变) ...
-  
-     // 绑定下载按钮事件
-     document.querySelectorAll('.download-btn').forEach(btn => {
-       btn.addEventListener('click', (e) => {
-         const url = btn.getAttribute('data-url');
-         const type = btn.getAttribute('data-type');
--        downloadMedia(url, type);
-+        downloadMedia(url, type, currentTab);
-       });
-     });
-   }
-  
--  function downloadMedia(url, type) {
--    // 生成建议文件名
--    let filename = '';
--    try {
--      const urlObj = new URL(url);
--      let pathname = urlObj.pathname;
--      filename = pathname.substring(pathname.lastIndexOf('/') + 1);
--      if (!filename) {
--        filename = `download_${Date.now()}`;
--      }
--    } catch (e) {
--      filename = `download_${Date.now()}`;
--    }
-+  // 生成格式化文件名: 日期 - 标题 - 域名.扩展名
-+  function generateFilename(mediaUrl, pageTitle, pageUrl) {
-+    // 1. 日期: YYYY-MM-DD
-+    const now = new Date();
-+    const year = now.getFullYear();
-+    const month = String(now.getMonth() + 1).padStart(2, '0');
-+    const day = String(now.getDate()).padStart(2, '0');
-+    const datePart = `${year}-${month}-${day}`;
-+    
-+    // 2. 标题: 清理非法字符，过长则截断（可选，这里保留原样但替换非法字符）
-+    let titlePart = pageTitle || '无标题';
-+    titlePart = titlePart.replace(/[/\\:*?"<>|]/g, '_').trim();
-+    if (titlePart.length > 50) titlePart = titlePart.substring(0, 50);
-+    
-+    // 3. 网址: 提取域名（hostname），清理非法字符（一般安全，但以防万一）
-+    let domainPart = '';
-+    try {
-+      const urlObj = new URL(pageUrl);
-+      domainPart = urlObj.hostname;
-+    } catch (e) {
-+      domainPart = 'unknown';
-+    }
-+    domainPart = domainPart.replace(/[/\\:*?"<>|]/g, '_');
-+    
-+    // 4. 扩展名: 从媒体URL中提取
-+    let ext = '';
-+    try {
-+      const urlObj = new URL(mediaUrl);
-+      const pathname = urlObj.pathname;
-+      const lastDot = pathname.lastIndexOf('.');
-+      if (lastDot !== -1 && lastDot < pathname.length - 1) {
-+        ext = pathname.substring(lastDot + 1).split('?')[0]; // 去掉查询参数
-+        ext = ext.toLowerCase();
-+      }
-+    } catch (e) {
-+      ext = '';
-+    }
-+    if (!ext) ext = 'bin'; // 默认扩展名
-+    
-+    // 5. 拼接并清理文件名中的多余空格
-+    let filename = `${datePart} - ${titlePart} - ${domainPart}.${ext}`;
-+    // 替换多个空格为单个空格，并去除首尾空格
-+    filename = filename.replace(/\s+/g, ' ').trim();
-+    return filename;
-+  }
-+  
-+  function downloadMedia(url, type, tab) {
-+    if (!tab) {
-+      alert('无法获取页面信息');
-+      return;
-+    }
-+    const filename = generateFilename(url, tab.title, tab.url);
-  
-     // 向background发送下载请求
-     chrome.runtime.sendMessage({ action: 'download', url: url, filename: filename }, (response) => {
-       if (response && response.success) {
-         console.log('下载已开始');
-       } else {
-         alert('下载失败: ' + (response?.error || '未知错误'));
-       }
-     });
-   }
- });
+### `manifest.json`（基于您提供的原文添加 `options_ui`）
+
+```aider MODIFY: manifest.json
+<<<<<<< SEARCH
+  "host_permissions": [
+    "https://translate.googleapis.com/*",
+    "https://api.ocr.space/*"
+  ],
+=======
+  "host_permissions": [
+    "https://translate.googleapis.com/*",
+    "https://api.ocr.space/*"
+  ],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": false
+  },
+>>>>>>> REPLACE
 ```
 
-## 修改说明
+> **说明**：假设您的 `manifest.json` 中 `host_permissions` 数组后直接是其他字段（如 `background`），此修改会在其后插入 `options_ui` 对象。若您之前已通过 `CREATE` 覆盖了完整文件，此修改依然有效。
 
-1. **保存当前标签页**：在获取到 `tab` 后将其保存在全局变量 `currentTab` 中，供下载函数使用。
-2. **新增 `generateFilename` 函数**：按照指定格式生成文件名，包含日期、页面标题、域名和扩展名，并清理非法字符。
-   - 日期格式为 `YYYY-MM-DD`。
-   - 标题若超过50字符则截断，并替换 Windows 非法字符。
-   - 域名从当前页面 URL 的 `hostname` 提取。
-   - 扩展名从媒体 URL 的路径末尾提取，若没有则默认 `bin`。
-   - 最终文件名中多余空格会被压缩。
-3. **修改 `downloadMedia` 调用**：增加 `tab` 参数，使用新的文件名生成逻辑。
+---
 
-## 使用效果
+### `background.js`（添加图片菜单和 OCR 处理）
 
-下载一个图片时，假设页面标题为“示例网站 - 首页”，域名为 `example.com`，媒体 URL 为 `https://example.com/image.jpg`，日期为 2026-03-30，则文件名类似：
+#### 1. 在创建菜单时增加图片菜单
+
+```aider MODIFY: background.js
+<<<<<<< SEARCH
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({
+    id: "translate-selection",
+    title: "翻译选中文本",
+    contexts: ["selection"]
+  });
+});
+=======
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({
+    id: "translate-selection",
+    title: "翻译选中文本",
+    contexts: ["selection"]
+  });
+  chrome.contextMenus.create({
+    id: "ocr-translate-image",
+    title: "识图翻译",
+    contexts: ["image"]
+  });
+});
+>>>>>>> REPLACE
 ```
-2026-03-30 - 示例网站 - 首页 - example.com.jpg
+
+#### 2. 在菜单点击处理中添加图片分支
+
+```aider MODIFY: background.js
+<<<<<<< SEARCH
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === "translate-selection" && info.selectionText) {
+    const selectedText = info.selectionText.trim();
+    chrome.tabs.sendMessage(tab.id, {
+      action: "translate",
+      text: selectedText
+    }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.warn("内容脚本未响应", chrome.runtime.lastError);
+      }
+    });
+  }
+});
+=======
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === "translate-selection" && info.selectionText) {
+    const selectedText = info.selectionText.trim();
+    chrome.tabs.sendMessage(tab.id, {
+      action: "translate",
+      text: selectedText
+    }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.warn("内容脚本未响应", chrome.runtime.lastError);
+      }
+    });
+  } else if (info.menuItemId === "ocr-translate-image" && info.srcUrl) {
+    handleImageTranslate(info.srcUrl, tab.id);
+  }
+});
+>>>>>>> REPLACE
 ```
+
+#### 3. 在文件末尾添加 OCR 处理函数（紧接现有 `translateText` 函数之后）
+
+```aider MODIFY: background.js
+<<<<<<< SEARCH
+async function translateText(text, targetLang = "zh-CN") {
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`翻译服务响应错误: ${response.status}`);
+  }
+  const data = await response.json();
+  return data[0].map(item => item[0]).join("");
+}
+=======
+async function translateText(text, targetLang = "zh-CN") {
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`翻译服务响应错误: ${response.status}`);
+  }
+  const data = await response.json();
+  return data[0].map(item => item[0]).join("");
+}
+
+async function handleImageTranslate(imageUrl, tabId) {
+  try {
+    chrome.tabs.sendMessage(tabId, {
+      action: "showMessage",
+      message: "正在识别图片文字...",
+      isError: false
+    }).catch(() => {});
+
+    const { ocrApiKey } = await chrome.storage.sync.get("ocrApiKey");
+    if (!ocrApiKey) {
+      throw new Error("请先在插件设置中配置 OCR API Key (https://ocr.space/ocrapi)");
+    }
+
+    const ocrText = await ocrImage(imageUrl, ocrApiKey);
+    if (!ocrText || ocrText.trim() === "") {
+      throw new Error("图片中未识别到文字");
+    }
+
+    chrome.tabs.sendMessage(tabId, {
+      action: "showMessage",
+      message: `识别结果：${ocrText}\n正在翻译...`,
+      isError: false
+    }).catch(() => {});
+
+    const translation = await translateText(ocrText, "zh-CN");
+    
+    chrome.tabs.sendMessage(tabId, {
+      action: "showTranslateResult",
+      original: ocrText,
+      translation: translation
+    }).catch(() => {});
+  } catch (error) {
+    console.error("识图翻译失败:", error);
+    chrome.tabs.sendMessage(tabId, {
+      action: "showMessage",
+      message: `识图翻译失败：${error.message}`,
+      isError: true
+    }).catch(() => {});
+  }
+}
+
+async function ocrImage(imageUrl, apiKey) {
+  const formData = new FormData();
+  formData.append("apikey", apiKey);
+  formData.append("url", imageUrl);
+  formData.append("language", "eng");
+  formData.append("isOverlayRequired", "false");
+  formData.append("detectOrientation", "true");
+
+  const response = await fetch("https://api.ocr.space/parse/image", {
+    method: "POST",
+    body: formData
+  });
+  if (!response.ok) {
+    throw new Error(`OCR API 响应错误: ${response.status}`);
+  }
+  const data = await response.json();
+  if (data.IsErroredOnProcessing) {
+    throw new Error(data.ErrorMessage[0] || "OCR 识别失败");
+  }
+  const parsedTexts = data.ParsedResults.map(result => result.ParsedText).filter(t => t);
+  return parsedTexts.join("\n").trim();
+}
+>>>>>>> REPLACE
+```
+
+---
+
+### `content.js`（增加对新消息类型的处理）
+
+```aider MODIFY: content.js
+<<<<<<< SEARCH
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === "translate") {
+    const text = request.text;
+    const toast = createToast();
+    toast.innerHTML = `<strong>翻译中...</strong> ${escapeHtml(text)}`;
+    toast.style.opacity = "1";
+
+    chrome.runtime.sendMessage({
+      action: "fetchTranslation",
+      text: text,
+      targetLang: "zh-CN"
+    }, (response) => {
+      if (response && response.translation) {
+        showTranslation(text, response.translation);
+      } else if (response && response.error) {
+        const toast = createToast();
+        toast.innerHTML = `<strong>翻译失败</strong> ${escapeHtml(response.error)}`;
+        toast.style.opacity = "1";
+        setTimeout(() => { toast.style.opacity = "0"; }, 3000);
+      } else {
+        const toast = createToast();
+        toast.innerHTML = `<strong>翻译失败</strong> 请检查网络连接`;
+        toast.style.opacity = "1";
+        setTimeout(() => { toast.style.opacity = "0"; }, 3000);
+      }
+    });
+    sendResponse({ received: true });
+  }
+  return true;
+});
+=======
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === "translate") {
+    const text = request.text;
+    const toast = createToast();
+    toast.innerHTML = `<strong>翻译中...</strong> ${escapeHtml(text)}`;
+    toast.style.opacity = "1";
+
+    chrome.runtime.sendMessage({
+      action: "fetchTranslation",
+      text: text,
+      targetLang: "zh-CN"
+    }, (response) => {
+      if (response && response.translation) {
+        showTranslation(text, response.translation);
+      } else if (response && response.error) {
+        const toast = createToast();
+        toast.innerHTML = `<strong>翻译失败</strong> ${escapeHtml(response.error)}`;
+        toast.style.opacity = "1";
+        setTimeout(() => { toast.style.opacity = "0"; }, 3000);
+      } else {
+        const toast = createToast();
+        toast.innerHTML = `<strong>翻译失败</strong> 请检查网络连接`;
+        toast.style.opacity = "1";
+        setTimeout(() => { toast.style.opacity = "0"; }, 3000);
+      }
+    });
+    sendResponse({ received: true });
+  } else if (request.action === "showMessage") {
+    const toast = createToast();
+    toast.innerHTML = escapeHtml(request.message);
+    toast.style.opacity = "1";
+    const timeout = request.isError ? 3000 : 5000;
+    clearTimeout(window.toastTimeout);
+    window.toastTimeout = setTimeout(() => {
+      toast.style.opacity = "0";
+    }, timeout);
+    sendResponse({ received: true });
+  } else if (request.action === "showTranslateResult") {
+    const toast = createToast();
+    toast.innerHTML = `
+      <strong>识别文字：</strong> ${escapeHtml(request.original)}<br>
+      <strong>翻译结果：</strong> ${escapeHtml(request.translation)}
+    `;
+    toast.style.opacity = "1";
+    clearTimeout(window.toastTimeout);
+    window.toastTimeout = setTimeout(() => {
+      toast.style.opacity = "0";
+    }, 8000);
+    sendResponse({ received: true });
+  }
+  return true;
+});
+>>>>>>> REPLACE
+```
+
+---
+
+### 新增文件
+
+#### `options.html`
+```html CREATE: options.html
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>翻译插件设置</title></head>
+<body>
+<div style="padding:20px;min-width:300px">
+  <h3>OCR API Key</h3>
+  <input type="text" id="apiKey" style="width:100%" placeholder="输入 OCR.space API Key">
+  <button id="save" style="margin-top:10px">保存</button>
+  <p style="font-size:12px;color:#666">申请地址：<a href="https://ocr.space/ocrapi" target="_blank">https://ocr.space/ocrapi</a></p>
+  <div id="status"></div>
+</div>
+<script src="options.js"></script>
+</body>
+</html>
+```
+
+#### `options.js`
+```javascript CREATE: options.js
+document.addEventListener("DOMContentLoaded", () => {
+  const apiKeyInput = document.getElementById("apiKey");
+  const saveBtn = document.getElementById("save");
+  const statusDiv = document.getElementById("status");
+
+  chrome.storage.sync.get("ocrApiKey", (data) => {
+    if (data.ocrApiKey) apiKeyInput.value = data.ocrApiKey;
+  });
+
+  saveBtn.addEventListener("click", () => {
+    const key = apiKeyInput.value.trim();
+    if (!key) {
+      statusDiv.textContent = "请输入 API Key";
+      statusDiv.style.color = "red";
+      return;
+    }
+    chrome.storage.sync.set({ ocrApiKey: key }, () => {
+      statusDiv.textContent = "保存成功";
+      statusDiv.style.color = "green";
+      setTimeout(() => statusDiv.textContent = "", 2000);
+    });
+  });
+});
+```
+
+---
+
+以上所有修改均严格遵守输出格式：只输出修改块（SEARCH/REPLACE）和新增文件（CREATE）。请检查。

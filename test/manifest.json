@@ -1,26 +1,28 @@
 {
   "manifest_version": 3,
-  "name": "媒体资源下载器",
+  "name": "网页翻译助手",
   "version": "1.0",
-  "description": "下载当前页面中的图片、视频、音频等媒体资源",
-  "permissions": ["downloads", "activeTab", "scripting"],
-  "host_permissions": ["<all_urls>"],
+  "description": "划词翻译插件，支持右键菜单翻译选中文本",
+  "permissions": [
+    "contextMenus",
+    "activeTab",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://translate.googleapis.com/*"
+  ],
   "background": {
     "service_worker": "background.js"
-  },
-  "action": {
-    "default_popup": "popup.html",
-    "default_icon": {
-      "16": "icon.png",
-      "48": "icon.png",
-      "128": "icon.png"
-    }
   },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"],
-      "run_at": "document_idle"
+      "js": ["content.js"]
     }
-  ]
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
 }
