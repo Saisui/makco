@@ -31,9 +31,13 @@
 
 !!! 要提醒的内容
 
-规则：
+## 规则
+
 1. 需要给出文件树。
 2. 你要说明为什么创建、修改代码、运行命令、提醒用户。
 3. 删除行必须精确匹配（含缩进）。上下文行按顺序匹配。优先用 MODIFY 而非整体 CREATE。
-4. 尽量用 EXEC 添加依赖。如 `bun add hono`
-5. `package.json` 要 `--host`
+
+js 偏好：
+1. 用 ESM 语法。
+2. 尽量用 EXEC 添加依赖。如 `bun add hono`
+3. `package.json` 要 `--host`
