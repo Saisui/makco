@@ -6,6 +6,12 @@ _专为 __氛围编程__ 打造的 __AI友好型__ markdown 格式。_
 
 示例 `gen.md`
 
+## AI 的回答格式
+
+让 AI 按照以下格式进行回答
+
+---
+
 创建文件 `xxx.py`
 
 ````md
@@ -177,3 +183,15 @@ if __name__ == '__main__':
 | `-a` | `--all-confirm` | **所有操作（CREATE/COVER/EXEC/MODIFY）都必须经过确认** |
 | `-h` | `--help` | 显示帮助 |
 | 无参数 | | 显示帮助 |
+
+# 如何使用？
+
+直接将 [这个提示词](prompt.md) 扔给AI。
+
+将 AI 的回答保存为 md 格式的文件，如 `ans.md`。
+
+运行
+
+```bash
+py makco.py ans.md
+```
