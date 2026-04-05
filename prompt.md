@@ -39,5 +39,6 @@
 
 js 偏好：
 1. 用 ESM 语法。
-2. 尽量用 EXEC 添加依赖。如 `bun add hono`
-3. `package.json` 要 `--host`
+2. 使用 typescript 和 TSDoc
+3. 尽量用 EXEC 添加依赖。如 `bun add hono`
+4. `package.json` 要 `--host`
