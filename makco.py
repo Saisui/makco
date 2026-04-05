@@ -172,7 +172,6 @@ class ActionHandler(ABC):
 
 # ===================== 具体操作处理器 =====================
 class CreateHandler(ActionHandler):
-    """处理 CREATE 块。"""
     def handle(self, filepath: str, content: str) -> None:
         dirname = os.path.dirname(filepath)
         if dirname:
@@ -181,7 +180,6 @@ class CreateHandler(ActionHandler):
         force = self.options.force_overwrite
         skip = self.options.skip_existing
 
-        # -a 模式先询问
         if self.options.all_confirm:
             exists = os.path.exists(filepath)
             if exists:
@@ -203,7 +201,6 @@ class CreateHandler(ActionHandler):
                 self._write_file(filepath, content)
                 self.printer.cover(filepath)
                 return
-            # 普通覆盖询问
             self.printer.prompt(' WARN ', Color.WARN, filepath, 'Overwrite?')
             if self.options.ask_yes_no(self.printer, no_prompt=True):
                 self._write_file(filepath, content)
@@ -219,9 +216,16 @@ class CreateHandler(ActionHandler):
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(content)
 
+
 class ExecHandler(ActionHandler):
-    """处理 EXEC 块。"""
-    def handle(self, command_str: str, _: Optional[str] = None) -> None:
+    """修复版：统一接口，使用 content 作为命令"""
+    def handle(self, target: Optional[str], content: str) -> None:
+        command_str = content
+
+        if not command_str or not command_str.strip():
+            self.printer.warn("Empty EXEC block")
+            return
+
         lines = command_str.splitlines()
         self.printer.exec_cmd(*lines if len(lines) > 1 else lines)
 
@@ -244,6 +248,7 @@ class ExecHandler(ActionHandler):
                 sys.stderr.write(f"Error executing command: {e}\n")
         else:
             self.printer.skipped()
+
 
 class ModifyHandler(ActionHandler):
     """处理 MODIFY 块，支持模糊缩进匹配。"""
