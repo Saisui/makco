@@ -150,12 +150,12 @@ if __name__ == '__main__':
 修改文件
 ```diff MODIFY: xxx.py
 # 定位上文
- def print():
+~def print():
 # 增加文本
 +  global count
 +  count += 1
 ===
- if __name == '__main__':
+~if __name == '__main__':
 -  print(123)
 +  print('welcome to my world')
 +  print('this is mine')
